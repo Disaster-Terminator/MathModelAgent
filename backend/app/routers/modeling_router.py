@@ -103,6 +103,7 @@ async def validate_api_key(request: ValidateApiKeyRequest):
             base_url=request.base_url
             if request.base_url != "https://api.openai.com/v1"
             else None,
+            timeout=settings.LLM_REQUEST_TIMEOUT,
         )
 
         return ValidateApiKeyResponse(valid=True, message="✓ 模型 API 验证成功")
@@ -261,15 +262,22 @@ async def run_modeling_task_async(
     # 给一个短暂的延迟，确保 WebSocket 有机会连接
     await asyncio.sleep(1)
 
-    # 创建任务并等待它完成
-    task = asyncio.create_task(MathModelWorkFlow().execute(problem))
-    # 设置超时时间（比如 300 分钟）
-    await asyncio.wait_for(task, timeout=3600 * 5)
+    try:
+        # 创建任务并等待它完成
+        task = asyncio.create_task(MathModelWorkFlow().execute(problem))
+        await asyncio.wait_for(task, timeout=settings.TASK_TIMEOUT_SECONDS)
 
-    # 发送任务完成状态
-    await redis_manager.publish_message(
-        task_id,
-        SystemMessage(content="任务处理完成", type="success"),
-    )
-    # 转换md为docx
-    md_2_docx(task_id)
+        # 发送任务完成状态
+        await redis_manager.publish_message(
+            task_id,
+            SystemMessage(content="任务处理完成", type="success"),
+        )
+        # 转换md为docx
+        md_2_docx(task_id)
+    except Exception as e:
+        logger.exception(f"建模任务失败 task_id={task_id}: {e}")
+        await redis_manager.publish_message(
+            task_id,
+            SystemMessage(content=f"任务处理失败: {e}", type="error"),
+        )
+        raise

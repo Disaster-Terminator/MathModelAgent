@@ -1,6 +1,6 @@
 from app.utils.common_utils import transform_link, split_footnotes
 from app.utils.log_util import logger
-import time
+import asyncio
 from app.schemas.response import (
     CoderMessage,
     WriterMessage,
@@ -13,6 +13,7 @@ from litellm import acompletion
 import litellm
 from app.schemas.enums import AgentType
 from app.utils.track import agent_metrics
+from app.config.setting import settings
 from icecream import ic
 
 litellm.callbacks = [agent_metrics]
@@ -64,6 +65,7 @@ class LLM:
             "stream": False,
             "top_p": top_p,
             "metadata": {"agent_name": agent_name},
+            "timeout": settings.LLM_REQUEST_TIMEOUT,
         }
 
         if tools:
@@ -91,7 +93,7 @@ class LLM:
             except Exception as e:
                 logger.error(f"第{attempt + 1}次重试: {str(e)}")
                 if attempt < max_retries - 1:  # 如果不是最后一次尝试
-                    time.sleep(retry_delay * (attempt + 1))  # 指数退避
+                    await asyncio.sleep(retry_delay * (attempt + 1))  # 指数退避
                     continue
                 logger.debug(f"请求参数: {kwargs}")
                 raise  # 如果所有重试都失败，则抛出异常
@@ -250,6 +252,7 @@ async def simple_chat(model: LLM, history: list) -> str:
         "model": model.model,
         "messages": history,
         "stream": False,
+        "timeout": settings.LLM_REQUEST_TIMEOUT,
     }
 
     if model.base_url:

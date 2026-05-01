@@ -3,6 +3,7 @@ from app.core.llm.llm import LLM
 from app.core.prompts import MODELER_PROMPT
 from app.schemas.A2A import CoordinatorToModeler, ModelerToCoder
 from app.utils.log_util import logger
+from app.config.setting import settings
 import json
 import re
 from icecream import ic
@@ -63,7 +64,7 @@ class ModelerAgent(Agent):
             }
         )
 
-        max_parse_retries = 3
+        max_parse_retries = settings.PARSE_RETRIES
         for attempt in range(max_parse_retries):
             response = await self.model.chat(
                 history=self.chat_history,

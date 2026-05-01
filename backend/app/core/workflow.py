@@ -79,7 +79,7 @@ class MathModelWorkFlow(WorkFlow):
             task_id=self.task_id,
             work_dir=self.work_dir,
             notebook_serializer=notebook_serializer,
-            timeout=3000,
+            timeout=settings.CODE_INTERPRETER_TIMEOUT,
         )
         
         scholar = OpenAlexScholar(

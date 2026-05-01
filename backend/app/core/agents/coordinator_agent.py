@@ -5,6 +5,7 @@ import json
 import re
 from app.utils.log_util import logger
 from app.schemas.A2A import CoordinatorToModeler
+from app.config.setting import settings
 
 
 class CoordinatorAgent(Agent):
@@ -23,7 +24,7 @@ class CoordinatorAgent(Agent):
             {"role": "system", "content": self.system_prompt}
         )
         await self.append_chat_history({"role": "user", "content": ques_all})
-        max_retries = 3
+        max_retries = settings.PARSE_RETRIES
         attempt = 0
         while attempt <= max_retries:
             try:

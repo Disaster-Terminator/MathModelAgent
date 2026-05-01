@@ -38,8 +38,12 @@ class Settings(BaseSettings):
     WRITER_BASE_URL: Optional[str] = None
     WRITER_MAX_TOKENS: Optional[int] = None
 
-    MAX_CHAT_TURNS: int = 150
-    MAX_RETRIES: int = 5
+    MAX_CHAT_TURNS: int = 100000
+    MAX_RETRIES: int = 1000
+    PARSE_RETRIES: int = 1000
+    TASK_TIMEOUT_SECONDS: int = 604800
+    CODE_INTERPRETER_TIMEOUT: int = 100000
+    LLM_REQUEST_TIMEOUT: int = 300
     E2B_API_KEY: Optional[str] = None
     LOG_LEVEL: str = "DEBUG"
     DEBUG: bool = True
