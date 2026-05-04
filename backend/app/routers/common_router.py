@@ -42,8 +42,8 @@ async def root():
 async def config():
     return {
         "environment": settings.ENV,
-        "deepseek_model": settings.DEEPSEEK_MODEL,
-        "deepseek_base_url": settings.DEEPSEEK_BASE_URL,
+        "model": settings.MODEL,
+        "litellm_api_url": settings.LITELLM_API_URL,
         "max_chat_turns": settings.MAX_CHAT_TURNS,
         "max_retries": settings.MAX_RETRIES,
         "CORS_ALLOW_ORIGINS": settings.CORS_ALLOW_ORIGINS,
