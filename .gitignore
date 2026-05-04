@@ -7,3 +7,5 @@ backend/app/.DS_Store
 .Spotlight-V100
 .Trashes
 .idea/
+# 环境变量文件包含敏感信息，不应提交
+backend/.env.dev
