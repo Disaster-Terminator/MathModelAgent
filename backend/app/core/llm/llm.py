@@ -15,6 +15,7 @@ from app.schemas.enums import AgentType
 from app.utils.track import agent_metrics
 from app.config.setting import settings
 from icecream import ic
+from openai import AsyncOpenAI
 
 litellm.callbacks = [agent_metrics]
 
@@ -54,9 +55,10 @@ class LLM:
         """
         下游旧版 litellm SDK 兼容上游自定义 OpenAI 兼容 proxy。
 
-        当通过 base_url 调用外部 proxy 时，若模型名使用了 SDK 不认识的自定义
-        provider（如 opencode-go/kimi-k2.6），将其包装为 openai/<原始模型名>，
-        让 SDK 走 OpenAI-compatible 路由，同时把原始模型名透传给上游 proxy。
+        当通过 base_url 调用外部 proxy 时：
+        - 若模型名使用了 SDK 不认识的自定义 provider（如 opencode-go/kimi-k2.6），
+          包装为 openai/<原始模型名>，让 SDK 走 OpenAI-compatible 路由。
+        - 若模型名是简单名称（如 pro-router），直接原样透传，不加前缀。
         已知内置 provider 则保持原样，避免破坏前端已有配置。
         """
         # 无自定义 endpoint，按原样透传
@@ -72,10 +74,28 @@ class LLM:
             provider, _ = raw_model.split("/", 1)
             if provider.lower() in cls._KNOWN_PROVIDERS:
                 return raw_model
+            # 未知 provider（如 opencode-go/kimi-k2.6）→ 包装为 openai/ 让 SDK 识别
+            return f"openai/{raw_model}"
 
-        # 未知 provider（如 opencode-go）或不带前缀的自定义模型 → 走 OpenAI 兼容路由
-        # litellm 的 openai provider 会把 openai/ 后面的字符串原样透传给上游
-        return f"openai/{raw_model}"
+        # 简单模型名（如 pro-router）→ 直接透传，不加前缀
+        return raw_model
+
+    async def _chat_with_openai(self, history, tools=None, tool_choice=None, top_p=None):
+        """使用原生 OpenAI client 直接调用自定义 base_url，避免 litellm 截断模型名。"""
+        client = AsyncOpenAI(api_key=self.api_key, base_url=self.base_url)
+        kwargs = {
+            "model": self.model,
+            "messages": history,
+            "stream": False,
+            "top_p": top_p,
+        }
+        if tools:
+            kwargs["tools"] = tools
+            kwargs["tool_choice"] = tool_choice
+        if self.max_tokens:
+            kwargs["max_tokens"] = self.max_tokens
+        response = await client.chat.completions.create(**kwargs)
+        return response
 
     async def chat(
         self,
@@ -95,32 +115,33 @@ class LLM:
         if history:
             history = self._validate_and_fix_tool_calls(history)
 
-        kwargs = {
-            "api_key": self.api_key,
-            "model": self.model,
-            "messages": history,
-            "stream": False,
-            "top_p": top_p,
-            "metadata": {"agent_name": agent_name},
-            "timeout": settings.LLM_REQUEST_TIMEOUT,
-        }
-
-        if tools:
-            kwargs["tools"] = tools
-            kwargs["tool_choice"] = tool_choice
-
-        if self.max_tokens:
-            kwargs["max_tokens"] = self.max_tokens
-
-        if self.base_url:
-            kwargs["base_url"] = self.base_url
-        litellm.enable_json_schema_validation = True #加入json格式验证
+        # 当使用自定义 base_url 时，绕过 litellm，直接用 OpenAI client，
+        # 避免旧版 litellm SDK 截断带 '/' 的自定义模型名（如 opencode-go/kimi-k2.6）。
+        use_openai_direct = bool(self.base_url)
 
         # TODO: stream 输出
         for attempt in range(max_retries):
             try:
-                # completion = self.client.chat.completions.create(**kwargs)
-                response = await acompletion(**kwargs)
+                if use_openai_direct:
+                    response = await self._chat_with_openai(history, tools, tool_choice, top_p)
+                else:
+                    kwargs = {
+                        "api_key": self.api_key,
+                        "model": self.model,
+                        "messages": history,
+                        "stream": False,
+                        "top_p": top_p,
+                        "metadata": {"agent_name": agent_name},
+                        "timeout": settings.LLM_REQUEST_TIMEOUT,
+                    }
+                    if tools:
+                        kwargs["tools"] = tools
+                        kwargs["tool_choice"] = tool_choice
+                    if self.max_tokens:
+                        kwargs["max_tokens"] = self.max_tokens
+                    litellm.enable_json_schema_validation = True
+                    response = await acompletion(**kwargs)
+
                 logger.info(f"API返回: {response}")
                 if not response or not hasattr(response, "choices"):
                     raise ValueError("无效的API响应")
@@ -132,7 +153,7 @@ class LLM:
                 if attempt < max_retries - 1:  # 如果不是最后一次尝试
                     await asyncio.sleep(retry_delay * (attempt + 1))  # 指数退避
                     continue
-                logger.debug(f"请求参数: {kwargs}")
+                logger.debug(f"请求参数: model={self.model}, base_url={self.base_url}")
                 raise  # 如果所有重试都失败，则抛出异常
 
     def _validate_and_fix_tool_calls(self, history: list) -> list:
@@ -284,17 +305,21 @@ async def simple_chat(model: LLM, history: list) -> str:
     Returns:
         return_type: Description of the return value.
     """
-    kwargs = {
-        "api_key": model.api_key,
-        "model": model.model,
-        "messages": history,
-        "stream": False,
-        "timeout": settings.LLM_REQUEST_TIMEOUT,
-    }
-
     if model.base_url:
-        kwargs["base_url"] = model.base_url
-
-    response = await acompletion(**kwargs)
+        client = AsyncOpenAI(api_key=model.api_key, base_url=model.base_url)
+        response = await client.chat.completions.create(
+            model=model.model,
+            messages=history,
+            stream=False,
+        )
+    else:
+        kwargs = {
+            "api_key": model.api_key,
+            "model": model.model,
+            "messages": history,
+            "stream": False,
+            "timeout": settings.LLM_REQUEST_TIMEOUT,
+        }
+        response = await acompletion(**kwargs)
 
     return response.choices[0].message.content

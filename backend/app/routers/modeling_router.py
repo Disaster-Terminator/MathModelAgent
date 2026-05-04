@@ -94,17 +94,24 @@ async def validate_api_key(request: ValidateApiKeyRequest):
     验证 API Key 的有效性
     """
     try:
-        # 使用 litellm 发送测试请求
-        await litellm.acompletion(
-            model=request.model_id,
-            messages=[{"role": "user", "content": "Hi"}],
-            max_tokens=1,
-            api_key=request.api_key,
-            base_url=request.base_url
-            if request.base_url != "https://api.openai.com/v1"
-            else None,
-            timeout=settings.LLM_REQUEST_TIMEOUT,
-        )
+        base_url = request.base_url if request.base_url != "https://api.openai.com/v1" else None
+        # 自定义 base_url 时绕过 litellm，避免旧版 SDK 截断带 '/' 的模型名
+        if base_url:
+            from openai import AsyncOpenAI
+            client = AsyncOpenAI(api_key=request.api_key, base_url=base_url)
+            await client.chat.completions.create(
+                model=request.model_id,
+                messages=[{"role": "user", "content": "Hi"}],
+                max_tokens=1,
+            )
+        else:
+            await litellm.acompletion(
+                model=request.model_id,
+                messages=[{"role": "user", "content": "Hi"}],
+                max_tokens=1,
+                api_key=request.api_key,
+                timeout=settings.LLM_REQUEST_TIMEOUT,
+            )
 
         return ValidateApiKeyResponse(valid=True, message="✓ 模型 API 验证成功")
     except Exception as e:

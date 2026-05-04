@@ -7,6 +7,7 @@ from app.utils.common_utils import ensure_safe_task_id, get_config_template
 from app.schemas.enums import CompTemplate
 from app.services.redis_manager import redis_manager
 from app.utils.log_util import logger
+import httpx
 
 router = APIRouter()
 
@@ -87,3 +88,50 @@ async def get_service_status():
         status["redis"] = {"status": "error", "message": f"Redis connection failed: {str(e)}"}
 
     return status
+
+
+@router.get("/health/proxy")
+async def health_proxy():
+    """检测后端到上游 LiteLLM Proxy 的连通性（不暴露 API Key）"""
+    base_url = settings.LITELLM_API_URL
+    if not base_url:
+        return {"reachable": False, "error": "LITELLM_API_URL not configured"}
+
+    try:
+        url = base_url.rstrip("/") + "/models"
+        async with httpx.AsyncClient(timeout=10) as client:
+            headers = {}
+            if settings.LITELLM_API_KEY:
+                headers["Authorization"] = f"Bearer {settings.LITELLM_API_KEY}"
+            response = await client.get(url, headers=headers)
+
+        if response.status_code == 200:
+            return {"reachable": True, "status": 200, "note": "proxy reachable and key valid"}
+        elif response.status_code == 401:
+            return {"reachable": True, "status": 401, "error": "proxy reachable but API Key rejected"}
+        else:
+            return {"reachable": True, "status": response.status_code, "error": response.text[:200]}
+    except Exception as e:
+        return {"reachable": False, "error": str(e)}
+
+
+@router.post("/reset-api-config")
+async def reset_api_config():
+    """清空前端保存的各 agent 专属配置，强制回退到 .env.dev 全局配置"""
+    try:
+        settings.COORDINATOR_API_KEY = None
+        settings.COORDINATOR_MODEL = None
+        settings.COORDINATOR_BASE_URL = None
+        settings.MODELER_API_KEY = None
+        settings.MODELER_MODEL = None
+        settings.MODELER_BASE_URL = None
+        settings.CODER_API_KEY = None
+        settings.CODER_MODEL = None
+        settings.CODER_BASE_URL = None
+        settings.WRITER_API_KEY = None
+        settings.WRITER_MODEL = None
+        settings.WRITER_BASE_URL = None
+        return {"success": True, "message": "已清空前端保存的专属配置，回退到 .env.dev 全局配置"}
+    except Exception as e:
+        logger.error(f"重置配置失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
