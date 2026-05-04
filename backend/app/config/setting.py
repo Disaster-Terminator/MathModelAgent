@@ -38,6 +38,11 @@ class Settings(BaseSettings):
     WRITER_BASE_URL: Optional[str] = None
     WRITER_MAX_TOKENS: Optional[int] = None
 
+    # 全局 LiteLLM 兜底配置（当各 agent 未单独配置时使用）
+    LITELLM_API_URL: Optional[str] = None
+    LITELLM_API_KEY: Optional[str] = None
+    MODEL: Optional[str] = None
+
     MAX_CHAT_TURNS: int = 100000
     MAX_RETRIES: int = 1000
     PARSE_RETRIES: int = 1000

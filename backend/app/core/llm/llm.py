@@ -19,6 +19,15 @@ from icecream import ic
 litellm.callbacks = [agent_metrics]
 
 class LLM:
+    # litellm 1.69.0 内置的常见 provider，若模型名以这些开头则保持原样
+    _KNOWN_PROVIDERS = {
+        "openai", "azure", "anthropic", "cohere", "vertex_ai", "bedrock",
+        "deepseek", "groq", "mistral", "together_ai", "ai21", "aleph_alpha",
+        "baseten", "nlp_cloud", "palm", "replicate", "huggingface", "sagemaker",
+        "ollama", "perplexity", "anyscale", "cloudflare", "fireworks_ai",
+        "openrouter", "textsynth", "xinference", "google", "palm",
+    }
+
     def __init__(
         self,
         api_key: str,
@@ -28,7 +37,7 @@ class LLM:
         max_tokens: int | None = None,
     ):
         self.api_key = api_key
-        self.model = model
+        self.model = self._resolve_model_name(model, base_url)
         self.base_url = base_url
         self.chat_count = 0
         self.max_tokens = max_tokens
@@ -39,6 +48,34 @@ class LLM:
             raise ValueError(f"{agent_name} 未配置模型 ID，请设置对应的 *_MODEL")
         if not self.api_key or not str(self.api_key).strip():
             raise ValueError(f"{agent_name} 未配置 API Key，请设置对应的 *_API_KEY")
+
+    @classmethod
+    def _resolve_model_name(cls, raw_model: str, base_url: str | None) -> str:
+        """
+        下游旧版 litellm SDK 兼容上游自定义 OpenAI 兼容 proxy。
+
+        当通过 base_url 调用外部 proxy 时，若模型名使用了 SDK 不认识的自定义
+        provider（如 opencode-go/kimi-k2.6），将其包装为 openai/<原始模型名>，
+        让 SDK 走 OpenAI-compatible 路由，同时把原始模型名透传给上游 proxy。
+        已知内置 provider 则保持原样，避免破坏前端已有配置。
+        """
+        # 无自定义 endpoint，按原样透传
+        if not base_url:
+            return raw_model
+
+        # 已经是 openai/ 开头，无需处理
+        if raw_model.startswith("openai/"):
+            return raw_model
+
+        # 若模型名包含已知内置 provider，保持原样
+        if "/" in raw_model:
+            provider, _ = raw_model.split("/", 1)
+            if provider.lower() in cls._KNOWN_PROVIDERS:
+                return raw_model
+
+        # 未知 provider（如 opencode-go）或不带前缀的自定义模型 → 走 OpenAI 兼容路由
+        # litellm 的 openai provider 会把 openai/ 后面的字符串原样透传给上游
+        return f"openai/{raw_model}"
 
     async def chat(
         self,
