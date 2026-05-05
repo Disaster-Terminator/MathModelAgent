@@ -255,6 +255,8 @@ class LLM:
     async def send_message(self, response, agent_name, sub_title=None):
         logger.info(f"subtitle是:{sub_title}")
         content = response.choices[0].message.content
+        if content is None:
+            content = ""
 
         match agent_name:
             case AgentType.CODER:

@@ -118,7 +118,10 @@ def md_2_docx(task_id: str):
     logger.info(f"转换完成: {docx_path}")
 
 
-def split_footnotes(text: str) -> tuple[str, list[tuple[str, str]]]:
+def split_footnotes(text: str | None) -> tuple[str, list[tuple[str, str]]]:
+    if text is None:
+        return "", []
+
     main_text = re.sub(
         r"\n\[\^\d+\]:.*?(?=\n\[\^|\n\n|\Z)", "", text, flags=re.DOTALL
     ).strip()
